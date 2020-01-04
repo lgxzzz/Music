@@ -1,0 +1,238 @@
+package com.test.zhouyuting.service;
+
+import java.io.File;
+import java.util.List;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Message;
+import android.util.Log;
+
+import com.test.zhouyuting.bean.MusicBean;
+import com.test.zhouyuting.impl.EventListener;
+import com.test.zhouyuting.impl.FileEvenListener;
+import com.test.zhouyuting.util.Util;
+
+public class MusicContext {
+	public static String TAG = "MusicContext";
+	public static Context mContext;
+	private EventListener mListener;
+	private static MusicPlayerMgr mPlayerMgr;
+	private static MusicFileMgr mFileMgr;
+	private static boolean isInit = false;
+	private MusicBean mSaveMusicBean;
+	public MusicContext(Context mContext){
+		this.mContext = mContext;
+	}
+	
+	public void init(){
+		mSaveMusicBean = getSaveMusicBean();
+		mPlayerMgr =new MusicPlayerMgr(mContext);
+		mPlayerMgr.setEventListener(mListener);
+		mPlayerMgr.switchMode(Util.getMode(mContext));
+		mFileMgr = new MusicFileMgr(mContext);
+		mFileMgr.setFileEventListener(new FileEvenListener() {
+			
+			@Override
+			public void onScanFileDetailFinish(List<MusicBean> musicBeans) {
+				// TODO Auto-generated method stub
+				Log.e(TAG, "onScanFileDetailFinish");
+				mPlayerMgr.setDefault(musicBeans);
+				mListener.onScanFinish(musicBeans);
+				isInit = true;
+				//初始化完成后加载上一次状态
+				mHandler.sendEmptyMessageDelayed(LOAD_SAVE, 500);
+			}
+		});
+	}
+	
+	public boolean isInit(){
+		return isInit;
+	}
+	
+	public void setEventListener(EventListener listener){
+		this.mListener = listener;
+		init();
+	}
+	
+	public static MusicFileMgr getMusicFileMgr(){
+		return mFileMgr;
+	}
+	
+	public static MusicPlayerMgr getMusicPlayerMgr(){
+		return mPlayerMgr;
+	}
+	
+	public static List<MusicBean> getMusicListBeans(){
+		return mPlayerMgr.mUsingMusicBeans;
+	}
+	
+	public static MusicBean getCurrentMusicBean(){
+		return mPlayerMgr.getCurrentMusicBean();
+	}
+	
+	public static boolean isPlaying(){
+		return mPlayerMgr.isPlaying();
+	}
+	
+	public static int getCurrentMode(){
+		return mPlayerMgr.getCurrentMode();
+	}
+	
+	public void play(){
+		mPlayerMgr.play();
+	}
+	
+	public void play(MusicBean bean){
+		mPlayerMgr.play(bean);
+	}
+	
+	public void pasuse(){
+		mPlayerMgr.pasuse();
+	}
+	
+	public void next(){
+		mPlayerMgr.next();
+	}
+	
+	public void pre(){
+		mPlayerMgr.pre();
+	}
+	
+	public void seekTo(int progress){
+		mPlayerMgr.seekTo(progress);
+	}
+	
+	public void switchMode(int mode){
+		mPlayerMgr.switchMode(mode);
+	}
+		
+	//保存当前播放状态
+	public void saveCurrentState(){
+		mPlayerMgr.saveState();
+	}
+	
+	public void waitToPlay(){
+		while (!isInit) {
+			try {
+				Log.e(TAG, "Wait:"+isInit);
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		mHandler.postDelayed(new Runnable() {
+			
+			@Override
+			public void run() {
+				// TODO Auto-generated method stub
+				play();
+			}
+		}, 1000);
+	}
+	
+	public void waitToPlay(final MusicBean bean){
+		while (!isInit) {
+			try {
+				Log.e(TAG, "Wait:"+isInit);
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		mHandler.postDelayed(new Runnable() {
+			
+			@Override
+			public void run() {
+				// TODO Auto-generated method stub
+				play(bean);
+			}
+		}, 1000);
+		
+	}
+	
+	/*---------------------------------------------加载缓存---------------------------------------------------------*/
+	public static final int LOAD_SAVE = 1;
+	public static final int WAIT_SD_FILE = 2;
+	int waitTimeOut = 6;
+	private Handler mHandler = new Handler(new Handler.Callback() 
+	{
+		@Override
+		public boolean handleMessage(Message msg) {
+			// TODO Auto-generated method stub
+			switch (msg.what) {
+			case LOAD_SAVE:
+				loadSaveMusic();
+				break;
+			case WAIT_SD_FILE:
+				if (waitTimeOut>0) 
+				{
+					waitTimeOut--;
+					if (new File(mSaveMusicBean.getPath()).exists()) 
+					{
+						mPlayerMgr.setCurrent(mSaveMusicBean);
+						mPlayerMgr.seekTo(mSaveMusicBean.getProgress());
+						mPlayerMgr.play();
+					}else
+					{
+						mHandler.sendEmptyMessageDelayed(WAIT_SD_FILE, 2000);
+					}
+				}else
+				{
+					waitTimeOut = 6;
+					Log.e(TAG, "load sd file timeOut !");
+				}
+				break;
+			default:
+				break;
+			}
+			return false;
+		}
+	});
+	
+	//获取保存的musicbean
+	public MusicBean getSaveMusicBean(){
+		SharedPreferences sharedPreferences = mContext.getSharedPreferences("imelocalmusic", Context.MODE_PRIVATE); //私有数据
+		String musicbean = sharedPreferences.getString("musicbean", "");
+		if (musicbean.length()>0) 
+		{
+			MusicBean bean = Util.convertStringToMusicBean(musicbean);
+			return bean;
+		} 
+		return null;
+	}
+	
+	//加载之前保存的状态
+	public void loadSaveMusic(){
+		Log.e(TAG, "loadSave:"+mSaveMusicBean);
+			if (mSaveMusicBean!=null) 
+			{
+				if (Util.isSDFile(mSaveMusicBean.getPath())) 
+				{
+					Log.e(TAG, "loadSave sd music file");
+					if (new File(mSaveMusicBean.getPath()).exists()) 
+					{
+						mPlayerMgr.setCurrent(mSaveMusicBean);
+						mPlayerMgr.seekTo(mSaveMusicBean.getProgress());
+						mPlayerMgr.play();
+					}else
+					{
+						mHandler.sendEmptyMessageDelayed(WAIT_SD_FILE, 2000);
+					}
+				}else
+				{
+					Log.e(TAG, "loadSave other music file");
+					mPlayerMgr.setCurrent(mSaveMusicBean);
+					mPlayerMgr.seekTo(mSaveMusicBean.getProgress());
+					mPlayerMgr.play();
+				}
+			}else
+			{
+				play();
+			}
+	}
+
+}
